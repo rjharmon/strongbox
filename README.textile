@@ -28,6 +28,10 @@ The password for the private key can be empty if you are protecting the key thro
 different method.  In that case, provide the empty string '' to decrypt() in order to 
 decrypt the data.
 
+This fork of Strongbox is also able to perform symmetric-only encryption.  If you 
+do this, be sure that you're protecting the symmetric key.  One application of this is
+for encrypting data to a private password known by the user.  See below for more options.
+
 h2. Quick Start
 
 In your model:
@@ -108,6 +112,15 @@ binary save data storage is not available.  Defaults to *false*
 RSA_PKCS1_PADDING. The default should be fine unless you are dealing with legacy
 data.
 
+:encrypt_iv true/false - Default is true for backward compatibility, but it is not 
+necessary to encrypt the initialization vector to maintain security.  For first-time
+installations, you might choose to set this to false, which cuts the encryption and
+decryption overhead approximately in half.  There is currently no method for 
+migrating encrypted iv's to clear-text iv's, but you could add a second set of columns 
+with a different configuration and write a script that decrypts values from one encrypted 
+column and stores them into to the second decrypted column.
+
+
 For example, encrypting a small attribute, providing only the public key for extra
 security, and Base64 encoding the encrypted data:
 
@@ -166,6 +179,69 @@ If you require additional validation for your encrypted columns, this should be 
 before assigning into encrypted attributes.  That, or you might want to contribute a 
 patch that delays the encryption step until right before save.
 
+h2. Symmetric Encryption
+
+h3. Background
+
+Asymmetric encryption is generally far preferred over symmetric-only encryption.  
+Being able to physically separate and protect the private decryption key from the 
+public encryption key creates a level of potential security unmatchable with 
+symmetric encryption, which is reversible using the single encryption key.  
+
+However, symmetric keys can be useful in certain circumstances - for example the 
+combined symmetric/asymmetric encryption provided by default with 
+_encrypt_with_public_key_.  Other advanced examples include:
+
+* Encrypt data to a PIN code known only to the user (retrieve it only when they re-type their PIN)
+
+* Encrypt a PIN code with public key, then use the PIN to symmetrically encrypt other data, so 
+that it can be retrieved directly by the user but not by an attacker.  Combined with pubkey 
+encryption for the same data, much flexibility is gained with a minimum of risk exposure - though
+it comes with a tradeoff: increased code complexity.
+
+h3. Implementing Symmetric Encryption
+
+If you don't understand the caveats above, please re-read them.  Then, if you are 
+prepared to do symmetric encryption, use _encrypt_with_symmetric_key_:
+
+bc. class User < ActiveRecord::Base
+  validates_length_of :pin_code, :is => 4
+  encrypt_with_symmetric_key :some_data, :encrypt_iv => false, :key_proc => :pin_key
+  attr_accessor :pin_key
+end
+
+All options are the same as for pubkey encryption, except that no keys may be specified.  
+Additionally, :encrypt_iv must be set to false, and the :key_proc must be specified as a 
+symbol referring to a function which will return the symmetric key.
+
+h3. Implementing the symmetric-key function
+
+Two examples should demonstrate the use of a function that returns symmetric keys.  They 
+correspond to the two use cases mentioned above.  
+
+Encrypting with a key not stored on the server:  This is easily implemented by creating 
+an attr_accessor on the model having the encrypted field.  
+
+bc. class User < ActiveRecord::Base
+  encrypt_with_symmetric_key :some_data, :encrypt_iv => false, :key_proc => :pin_key
+  attr_accessor :pin_key
+end
+
+In your controller, put the key into the model prior to storing or retrieving encrypted data.
+
+In the second example, we store the user's PIN, encrypted asymmetrically.  To encrypt 
+data to the PIN code, we go inside the security perimeter where we have the private key; 
+decrypt the PIN, then set it, possibly using the attr_accessor method, prior to encrypting 
+the symmetric data.
+
+Decryption for user-facing content is done the same way as in the first example.  
+
+Another method of implementing the :key_proc is as follows:
+
+bc. attr_writer :pin_key
+def pin_key
+  @pin_key || self.pin.decrypt('password')
+end
 
 h2. Security Caveats
 
@@ -183,8 +259,13 @@ h2. Authors
 
 Spike Ilacqua
 
+h2. Contributors
+
+Randy Harmon
+
 h2. Thanks
 
 Strongbox's implementation drew inspiration from Thoughtbot's Paperclip gem
 http://www.thoughtbot.com/projects/paperclip
+
 

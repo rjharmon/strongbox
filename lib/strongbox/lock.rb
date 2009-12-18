@@ -22,10 +22,28 @@ module Strongbox
       @symmetric_cipher = options[:symmetric_cipher]
       @symmetric_key = options[:symmetric_key] || "#{name}_key"
       @symmetric_iv = options[:symmetric_iv] || "#{name}_iv"
+      @key_proc = options[:key_proc]
+      @encrypt_iv = options[:encrypt_iv]
+      if @symmetric == :only
+        if @encrypt_iv
+          raise ArgumentError, ":encrypt_iv should be set to false for :symmetric => :only encryption, since encrypting the iv requires a pubkey"
+        end
+        if @public_key
+          raise ArgumentError, ":public_key, :private_key and :key_pair are not used with :symmetric => :only"
+        end
+        unless @key_proc
+          raise ArgumentError, ":key_proc option is required.  This option specifies a proc or a symbol of a method on the instance, which will return a key used for the symmetric cypher."
+        end
+      else
+        if @key_proc
+          raise ArgumentError, ":key_proc is valid only when :symmetric => :only is specified, or when using encrypt_with_symmetric_key()"
+        end
+      end
     end
     
     def encrypt plaintext
-      unless @public_key
+      
+      unless @public_key or @symmetric == :only
         raise StrongboxError.new("#{@instance.class} model does not have public key_file")
       end
       if !plaintext.blank?
@@ -34,22 +52,42 @@ module Strongbox
         # Using a blank password in OpenSSL::PKey::RSA.new prevents reading
         # the private key if the file is a key pair
         public_key = get_rsa_key(@public_key,"")
-        if @symmetric == :always
+        if @symmetric == :always or @symmetric == :only
           cipher = OpenSSL::Cipher::Cipher.new(@symmetric_cipher)
           cipher.encrypt
-          cipher.key = random_key = cipher.random_key
-          cipher.iv = random_iv = cipher.random_iv
+          
+          cipher.key = symmetric_key = case @key_proc
+          when Proc
+            @key_proc.call( @instance )
+          when Symbol
+            @instance.send( @key_proc )
+          else
+            cipher.random_key
+          end
+          cipher.iv = symmetric_iv = cipher.random_iv
 
           ciphertext = cipher.update(plaintext)
           ciphertext << cipher.final
-          encrypted_key = public_key.public_encrypt(random_key,@padding)
-          encrypted_iv = public_key.public_encrypt(random_iv,@padding)
+          unless @symmetric == :only
+            encrypted_key = public_key.public_encrypt(symmetric_key,@padding)
+          end
+          if @encrypt_iv
+            encrypted_iv = public_key.public_encrypt(symmetric_iv,@padding)
+          end
           if @base64
-            encrypted_key = Base64.encode64(encrypted_key)
+            unless @symmetric == :only
+              encrypted_key = Base64.encode64(encrypted_key)
+            end
             encrypted_iv = Base64.encode64(encrypted_iv)
           end
-          @instance[@symmetric_key] = encrypted_key
-          @instance[@symmetric_iv] = encrypted_iv
+          unless @symmetric == :only
+            @instance[@symmetric_key] = encrypted_key
+          end
+          if @encrypt_iv
+            @instance[@symmetric_iv] = encrypted_iv
+          else
+            @instance[@symmetric_iv] = symmetric_iv
+          end
         else
           ciphertext = public_key.public_encrypt(plaintext,@padding)
         end
@@ -73,25 +111,45 @@ module Strongbox
       return nil if ciphertext.nil?
       return "" if ciphertext.empty?
       
-      return "*encrypted*" if password.nil?
-      unless @private_key
+      return "*encrypted*" if password.nil? and ! @key_proc
+      unless @private_key or @symmetric == :only
         raise StrongboxError.new("#{@instance.class} model does not have private key_file")
       end
       
       if ciphertext
         ciphertext = Base64.decode64(ciphertext) if @base64
         private_key = get_rsa_key(@private_key,password)
-        if @symmetric == :always
-          random_key = @instance[@symmetric_key]
-          random_iv = @instance[@symmetric_iv]
+        
+        if @symmetric == :always || @symmetric == :only
+          symmetric_key = case @key_proc
+          when Proc
+            @key_proc.call( @instance )
+          when Symbol
+            @instance.send( @key_proc )
+          else
+            @instance[@symmetric_key]
+          end
+          symmetric_iv = @instance[@symmetric_iv]
+          
           if @base64
-            random_key = Base64.decode64(random_key)
-            random_iv = Base64.decode64(random_iv)
+            if @symmetric == :always
+              symmetric_key = Base64.decode64(symmetric_key)
+            end
+            symmetric_iv = Base64.decode64(symmetric_iv)
           end
           cipher = OpenSSL::Cipher::Cipher.new(@symmetric_cipher)
           cipher.decrypt
-          cipher.key = private_key.private_decrypt(random_key,@padding)
-          cipher.iv = private_key.private_decrypt(random_iv,@padding)
+          cipher.key = if @symmetric == :only
+            symmetric_key
+          else
+            private_key.private_decrypt(symmetric_key,@padding)
+          end
+          if @encrypt_iv
+            cipher.iv = private_key.private_decrypt(symmetric_iv,@padding)
+          else
+            cipher.iv = symmetric_iv
+          end
+          
           plaintext = cipher.update(ciphertext)
           plaintext << cipher.final
         else
@@ -121,6 +179,7 @@ module Strongbox
 
 private
     def get_rsa_key(key,password = '')
+      return nil unless key
       return key if key.is_a?(OpenSSL::PKey::RSA)
       if key !~ /^-----BEGIN RSA/
         key = File.read(key)

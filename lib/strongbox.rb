@@ -19,6 +19,7 @@ module Strongbox
         :base64 => false,
         :symmetric => :always,
         :padding => RSA_PKCS1_PADDING,
+        :encrypt_iv => true,
         :symmetric_cipher => 'aes-256-cbc'
       }
     end
@@ -42,6 +43,15 @@ module Strongbox
     # used (the default) additional column are need to store the generated password
     # and IV.
     def encrypt_with_public_key(name, options = {})
+      strongbox_encryption( name, options )
+    end
+
+    def encrypt_with_symmetric_key( name, options = {})
+      options.merge!( :symmetric => :only )
+      strongbox_encryption( name, options )
+    end
+
+    def strongbox_encryption( name, options )
       include InstanceMethods
 
       class_inheritable_reader :lock_options

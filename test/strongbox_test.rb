@@ -297,5 +297,82 @@ class StrongboxTest < Test::Unit::TestCase
     end
   end
 
+  context 'A class without symmetric-only encryption field' do
+    should "not allow key_proc" do
+      assert_raises ArgumentError do
+        Dummy.class_eval do
+          def foobar
+            'Fake symmetric key'
+          end
+          encrypt_with_public_key :secret, :key_proc => :foobar, :key_pair => File.join(FIXTURES_DIR,'keypair.pem')
+        end
+        Dummy.new.secret = "value"
+      end      
+    end
+  end
+  
+  context 'A class with symmetric-only encryption field' do
+    should "require key_proc" do
+      assert_raises ArgumentError do
+        Dummy.class_eval do
+          encrypt_with_symmetric_key :secret
+        end
+        Dummy.new.secret = "value"
+      end      
+    end
+    should "not allow :key_pair" do
+      assert_raises ArgumentError do
+        Dummy.class_eval do
+          encrypt_with_symmetric_key :secret, :key_pair => true
+        end
+        Dummy.new.secret = "value"
+      end      
+    end
+    should "not allow :private_key" do
+      assert_raises ArgumentError do
+        Dummy.class_eval do
+          encrypt_with_symmetric_key :secret, :private_key => true
+        end
+        Dummy.new.secret = "value"
+      end      
+    end
+    should "not allow :public_key" do
+      assert_raises ArgumentError do
+        Dummy.class_eval do
+          encrypt_with_symmetric_key :secret, :public_key => true
+        end
+        Dummy.new.secret = "value"
+      end      
+    end
+    should "require false :encrypt_iv" do
+      assert_raises ArgumentError do
+        Dummy.class_eval do
+          encrypt_with_symmetric_key :secret, :encrypt_iv => true
+        end
+        Dummy.new.secret = "value"
+      end      
+    end
+  
+    context "after successful setup" do
+      setup do
+        Dummy.class_eval do
+          def return_a_key
+            'this is my symmetric key, in an over-simplified key-returning function'
+          end
+          encrypt_with_symmetric_key :secret, :key_proc => :return_a_key, :encrypt_iv => false
+        end
+        @dummy = Dummy.new
+      end
+      should "store the iv" do
+        @dummy.secret = "some value"
+        assert @dummy.secret_iv
+      end
+      should "decrypt the data" do
+        expected = 'secret data'
+        @dummy.secret = expected
+        assert_equal expected, @dummy.secret.decrypt()
+      end
+    end
+  end
 end
 
