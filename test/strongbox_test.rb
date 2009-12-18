@@ -184,6 +184,23 @@ class StrongboxTest < Test::Unit::TestCase
       assert_not_equal @dummy.attributes['secret'], 'Shhhh'
       assert_equal "Shhhh", @dummy.secret.decrypt('')
     end
+
+    context "and we set the field to empty" do
+      setup do
+        @dummy.secret = "something"
+        @dummy.secret = ""
+      end
+      should "clear the field" do
+        assert_equal '', @dummy.secret.decrypt()
+        assert_equal '', @dummy[:secret]
+        assert_equal '', @dummy.secret.decrypt('')
+      end
+      should "unclear the field if we set it back to something" do
+        @dummy.secret = "something"
+        assert_equal '*encrypted*', @dummy.secret.decrypt()
+        assert_equal 'something', @dummy.secret.decrypt('')
+      end
+    end
   end
   
   context 'with validations' do
@@ -203,6 +220,13 @@ class StrongboxTest < Test::Unit::TestCase
       should 'have an error on the secret when invalid' do
         assert !@invalid.valid?
         assert @invalid.errors.on(:secret)
+      end
+      
+      should 'be invalid on update if the field is changed to empty' do
+        @valid.save
+        @invalid = @valid.reload
+        @invalid.secret = ""
+        assert ! @invalid.valid?
       end
     end
     
