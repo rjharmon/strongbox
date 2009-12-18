@@ -175,10 +175,10 @@ class StrongboxTest < Test::Unit::TestCase
   end
 
   context "when an unencrypted key pair is used" do
-     setup do
+    setup do
       rebuild_class(:key_pair => generate_key_pair)
       @dummy = Dummy.new(:secret => 'Shhhh')
-     end
+    end
 
     should "encrypt the data"  do
       assert_not_equal @dummy.attributes['secret'], 'Shhhh'
