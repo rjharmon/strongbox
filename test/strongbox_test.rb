@@ -373,6 +373,26 @@ class StrongboxTest < Test::Unit::TestCase
         assert_equal expected, @dummy.secret.decrypt()
       end
     end
+    context "after successful setup with base_64" do
+      setup do
+        Dummy.class_eval do
+          def return_a_key
+            'this is my symmetric key, in an over-simplified key-returning function'
+          end
+          encrypt_with_symmetric_key :secret, :key_proc => :return_a_key, :encrypt_iv => false, :base64 => true
+        end
+        @dummy = Dummy.new
+      end
+      should "store the iv" do
+        @dummy.secret = "some value"
+        assert @dummy.secret_iv
+      end
+      should "decrypt the data" do
+        expected = 'secret data'
+        @dummy.secret = expected
+        assert_equal expected, @dummy.secret.decrypt()
+      end
+    end
   end
 end
 

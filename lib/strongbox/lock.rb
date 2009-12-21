@@ -78,7 +78,11 @@ module Strongbox
             unless @symmetric == :only
               encrypted_key = Base64.encode64(encrypted_key)
             end
-            encrypted_iv = Base64.encode64(encrypted_iv)
+            if @encrypt_iv
+              encrypted_iv = Base64.encode64(encrypted_iv)
+            else
+              symmetric_iv = Base64.encode64(symmetric_iv)
+            end
           end
           unless @symmetric == :only
             @instance[@symmetric_key] = encrypted_key
